@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# docker-compose.yml — Referring 3D Detection on LiDAR
+# ---------------------------------------------------------------------------
+# One container with everything already built: PyTorch 2.4 / CUDA 12.4, the
+# mmdetection3d fork (installed as a package), MSDeformAttn CUDA op, RoBERTa/
+# transformers, and the nuScenes devkit. Pull the repo, build once, and you are
+# ready to run extract -> train -> eval — no manual compilation.
+#
+# Requirements on the host: an NVIDIA GPU, a recent driver, Docker, and the
+# NVIDIA Container Toolkit (so `runtime: nvidia` works).
+#
+# Quick start:
+#   # 1. build the image (first time only, ~15-20 min)
+#   REFER_DATA_ROOT=/path/to/nuscenes docker compose build refer-lidar
+#   # 2. open a shell inside the container (working dir is /workspace/refer_lidar)
+#   REFER_DATA_ROOT=/path/to/nuscenes docker compose run --rm refer-lidar
+#   # then, inside:  bash scripts/extract_cache.sh   (see refer_lidar/README.md)
+#
+# Configuration via environment variables:
+#   REFER_DATA_ROOT          host dir mounted at /data (nuScenes + prepared
+#                            referring queries + caches). Default: ./data
+#   NVIDIA_VISIBLE_DEVICES   which GPUs to expose. Default: all
+# ---------------------------------------------------------------------------
+
+services:
+  refer-lidar:
+    build:
+      context: ..                              # the mmdet3d fork (repo root)
+      dockerfile: refer_lidar/Dockerfile.fast
+    image: refer-lidar:fast
+    container_name: refer-lidar
+    runtime: nvidia                            # requires nvidia-container-toolkit
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # your nuScenes data + prepared referring queries + feature caches
+      - ${REFER_DATA_ROOT:-./data}:/data
+      # live source: edit on the host, run in the container (shadows the baked copy)
+      - ..:/workspace
+    working_dir: /workspace/refer_lidar
+    shm_size: "32g"                            # DataLoader workers need shared memory
+    stdin_open: true
+    tty: true
+    command: bash

@@ -1,0 +1,72 @@
+# Faster, minimal refer-lidar image for this workspace.
+# Keeps CUDA 12.4 + Torch 2.4, removes unused pointpillar-repo and torchtext build hacks.
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    ca-certificates \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/opt/conda/bin:${PATH}"
+RUN curl -sSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o /tmp/miniforge.sh \
+    && bash /tmp/miniforge.sh -b -p /opt/conda \
+    && rm /tmp/miniforge.sh \
+    && /opt/conda/bin/conda install -y python=3.10 \
+    && /opt/conda/bin/conda clean -ya
+
+RUN pip install --no-cache-dir --upgrade pip "setuptools<81" wheel ninja openmim
+
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cu124 \
+    torch==2.4.0+cu124 \
+    torchvision==0.19.0+cu124
+
+ENV TORCH_CUDA_ARCH_LIST="8.9"
+ENV FORCE_CUDA=1
+ENV MMCV_WITH_OPS=1
+
+RUN pip install --no-cache-dir spconv-cu124==2.3.8
+
+WORKDIR /workspace
+
+# Copy only dependency descriptors first for better cache reuse.
+COPY requirements/ /workspace/requirements/
+RUN if [ -f /workspace/requirements/runtime.txt ]; then pip install --no-cache-dir -r /workspace/requirements/runtime.txt; fi \
+    && if [ -f /workspace/requirements/mminstall.txt ]; then pip install --no-cache-dir --no-build-isolation -r /workspace/requirements/mminstall.txt; fi
+
+# Enforce CUDA-enabled mmcv ops during image build.
+RUN pip uninstall -y mmcv-lite mmcv || true \
+    && pip install --no-cache-dir "setuptools<81" \
+    && pip install --no-cache-dir --no-build-isolation --no-binary mmcv mmcv==2.1.0
+
+COPY . /workspace/
+RUN pip install --no-cache-dir --no-build-isolation -v .
+
+RUN pip install --no-cache-dir \
+    einops \
+    tensorboardX \
+    transformers==4.57.6 \
+    nuscenes-devkit>=1.1.9 \
+    pyquaternion>=0.9.9 \
+    numba==0.59.0 \
+    numpy==1.26.4
+    
+RUN cd /workspace/refer_lidar/models/ops \
+    && find src -type f \( -name "*.cpp" -o -name "*.cu" -o -name "*.h" \) -exec sed -i 's/\.type()\.is_cuda()/\.is_cuda()/g' {} + \
+    && find src -type f \( -name "*.cpp" -o -name "*.cu" -o -name "*.h" \) -exec sed -i 's/\.type()/\.scalar_type()/g' {} + \
+    && pip install --no-cache-dir --no-build-isolation .
+
+WORKDIR /workspace/refer_lidar
+CMD ["bash"]

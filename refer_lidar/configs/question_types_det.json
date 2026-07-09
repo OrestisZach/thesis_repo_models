@@ -1,0 +1,9 @@
+[
+    "object_detection",
+    "object_detection_closest_in_sector",
+    "object_detection_all_category",
+    "object_detection_closest",
+    "object_detection_all",
+    "pedestrians_on_road_locate",
+    "pedestrians_on_road_presence"
+]
